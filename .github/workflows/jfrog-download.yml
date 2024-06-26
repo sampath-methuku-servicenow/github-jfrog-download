@@ -1,36 +1,68 @@
-# This is a basic workflow to help you get started with Actions
+name: GitHubJFrogDownloadArtifact
 
-name: CI
-
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  download_from_jfrog:
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
+    defaults:
+      run:
+        working-directory: "${{ github.workspace }}"
+
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
-
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Set up JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v3
+        with:
+          version: latest
+        env:
+          JF_URL: "https://sampathdevops002.jfrog.io/"
+          JF_USER: "admin"
+          JF_PASSWORD: "DevOps11"
+          
+      - name: download artifacts from jfrog
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          export JFROG_CLI_HOME="${{ github.workspace }}"
+          # download artifact from jfrog
+          jf rt dl "github_repo/com/devops/servicenow/servicenow-app-devops.zip" ./
+          # Publish build info
+          jf rt bp
+
+  changeApproval:
+    name: ServiceNow Change Approval
+    needs: download_from_jfrog
+    runs-on: ubuntu-latest
+
+    steps:     
+      - name: ServiceNow Change Approval
+        uses: ServiceNow/servicenow-devops-change@v3.1.0
+        id: create
+        with:
+          devops-integration-token: "QO2GVXOa2Fl0Uc9Dy9iP5joN0hEtd7HM"
+          instance-url: "https://sampath11.service-now.com/"
+          tool-id: "de9b8da04791ce104543cc99e16d43bb"
+          context-github: ${{ toJSON(github) }}
+          job-name: 'ServiceNow Change Approval'
+          change-request: '{"setCloseCode":"true","attributes":{"short_description":"Automated Software Deployment","description":"Automated Software Deployment.","assignment_group":"a715cd759f2002002920bde8132e7018","implementation_plan":"Software update is tested and results can be found in Test Summaries Tab; When the change is approved the implementation happens automated by the CICD pipeline within the change planned start and end time window.","backout_plan":"When software fails in production, the previous software release will be re-deployed.","test_plan":"Testing if the software was successfully deployed"}}'
+          interval: '100'
+          timeout: '3600'
+          changeCreationTimeOut: '3600'
+          abortOnChangeCreationFailure: true
+          abortOnChangeStepTimeout: true
+      - name: Output of Change Creation
+        run: echo "change-request-number = ${{ steps.create.outputs.change-request-number }} and change-request-sys-id = ${{ steps.create.outputs.change-request-sys-id }} " >> $GITHUB_OUTPUT
+    
+  deploy:
+    name: Deploy
+    needs: changeApproval
+    runs-on: ubuntu-latest
+
+    steps:     
+      - name: Run Deployment Script
+        run: echo "Deployment Finished....."    
